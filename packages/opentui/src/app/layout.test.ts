@@ -283,7 +283,7 @@ test("handleKeyPress supports text-mode border cycling and editing keys", () => 
   expect(borderCycles).toEqual([-1]);
   expect(backspaces).toBe(1);
   expect(deletes).toBe(1);
-  expect(inserted).toBe(" ");
+  expect(inserted === " ").toBe(true);
 });
 
 test("handleMouseEvent selects a tool from the full chrome palette", () => {

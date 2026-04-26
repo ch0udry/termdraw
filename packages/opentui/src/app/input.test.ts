@@ -154,7 +154,7 @@ test("handleKeyPress switches tools with hotkeys outside text entry", () => {
 
   expect(handled).toBe(true);
   expect(wasPrevented()).toBe(true);
-  expect(mode).toBe("paint");
+  expect(mode === "paint").toBe(true);
   expect(renders).toBe(1);
 });
 
@@ -184,7 +184,7 @@ test("handleKeyPress does not switch tools while text entry is armed", () => {
 
   expect(handled).toBe(true);
   expect(mode).toBeNull();
-  expect(inserted).toBe("b");
+  expect(inserted === "b").toBe(true);
 });
 
 test("handleKeyPress cycles line styles with bracket keys", () => {
