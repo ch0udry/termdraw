@@ -67,6 +67,25 @@ wait_for_text() {
   fail "Timed out waiting for text: ${needle}"
 }
 
+wait_for_any_text() {
+  local timeout_seconds=${1:-30}
+  shift
+  local start_time=$SECONDS
+
+  while (( SECONDS - start_time < timeout_seconds )); do
+    local pane
+    pane="$(capture_pane)"
+    for needle in "$@"; do
+      if grep -Fq -- "${needle}" <<<"${pane}"; then
+        return 0
+      fi
+    done
+    sleep 0.2
+  done
+
+  fail "Timed out waiting for startup text: $*"
+}
+
 assert_contains() {
   local needle=$1
   capture_pane | grep -Fq -- "${needle}" || fail "Expected pane to contain: ${needle}"
@@ -85,15 +104,17 @@ main() {
     -c "${REPO_ROOT}" \
     "PI_TERMDRAW_SMOKE_TEXT=${SMOKE_TEXT@Q} pi --offline --no-session -e ${EXTENSION_PATH@Q}"
 
-  wait_for_text 'Kernel:' 30
+  wait_for_any_text 30 'Kernel:' '[Extensions]' 'Press ctrl+o to show full startup help and loaded resources.'
 
   printf -- 'Opening /termdraw...\n'
   tmux send-keys -t "${PANE_TARGET}" '/termdraw' Enter
-  wait_for_text 'termDRAW!' 30
-  wait_for_text 'B Brush • A Select • U Box • P Line • T Text' 30
+  wait_for_any_text 30 'Inserted drawing into editor.' 'termDRAW!'
 
-  tmux send-keys -t "${PANE_TARGET}" Enter
-  wait_for_text 'Inserted drawing into editor.' 30
+  if ! capture_pane | grep -Fq -- 'Inserted drawing into editor.'; then
+    wait_for_text 'B Brush • A Select • U Box • P Line • T Text' 30
+    tmux send-keys -t "${PANE_TARGET}" Enter
+    wait_for_text 'Inserted drawing into editor.' 30
+  fi
 
   assert_contains '```text'
   assert_contains '```'

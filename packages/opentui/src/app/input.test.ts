@@ -1,30 +1,32 @@
 import { expect, test } from "bun:test";
-import { handleKeyPress } from "./input";
+import type { KeyEvent } from "@opentui/core";
+import { handleDiagramSavePromptKey, handleKeyPress } from "./input";
+import type { DiagramSavePromptState } from "./types";
 
-function createMockKey(
+function createKeyEvent(
   name: string,
-  options: Partial<{
-    raw: string;
-    ctrl: boolean;
-    shift: boolean;
-    meta: boolean;
-    option: boolean;
-  }> = {},
-) {
+  overrides: Partial<KeyEvent> = {},
+): { event: KeyEvent; wasPrevented: () => boolean } {
   let prevented = false;
 
   return {
-    key: {
+    event: {
       name,
-      raw: options.raw ?? name,
-      ctrl: options.ctrl ?? false,
-      shift: options.shift ?? false,
-      meta: options.meta ?? false,
-      option: options.option ?? false,
-      preventDefault: () => {
+      ctrl: false,
+      meta: false,
+      shift: false,
+      option: false,
+      sequence: "",
+      number: false,
+      raw: "",
+      eventType: "press",
+      source: "raw",
+      preventDefault() {
         prevented = true;
       },
-    },
+      stopPropagation() {},
+      ...overrides,
+    } as KeyEvent,
     wasPrevented: () => prevented,
   };
 }
@@ -57,14 +59,32 @@ function createMockState(overrides: Record<string, unknown> = {}) {
   };
 }
 
+test("handleDiagramSavePromptKey cancels the prompt for esc keys", () => {
+  const prompt: DiagramSavePromptState = {
+    value: "diagram",
+    error: null,
+    pending: false,
+  };
+  const { event, wasPrevented } = createKeyEvent("esc");
+
+  const result = handleDiagramSavePromptKey(event, prompt);
+
+  expect(result).toEqual({
+    handled: true,
+    prompt: null,
+    statusMessage: "Save diagram cancelled.",
+  });
+  expect(wasPrevented()).toBe(true);
+});
+
 test("handleKeyPress clears selection on Escape", () => {
   let cleared = 0;
   let renders = 0;
   let dismissed = 0;
-  const { key, wasPrevented } = createMockKey("escape", { raw: "\u001b" });
+  const { event, wasPrevented } = createKeyEvent("escape", { raw: "\u001b" });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState({
       clearSelection: () => {
         cleared += 1;
@@ -72,6 +92,7 @@ test("handleKeyPress clears selection on Escape", () => {
     }) as never,
     cancelOnCtrlCEnabled: true,
     onSave: null,
+    onSaveDiagram: null,
     onCancel: null,
     requestRender: () => {
       renders += 1;
@@ -90,13 +111,14 @@ test("handleKeyPress clears selection on Escape", () => {
 
 test("handleKeyPress invokes cancel on Ctrl+Q", () => {
   let cancelled = 0;
-  const { key, wasPrevented } = createMockKey("q", { ctrl: true });
+  const { event, wasPrevented } = createKeyEvent("q", { ctrl: true });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState() as never,
     cancelOnCtrlCEnabled: true,
     onSave: null,
+    onSaveDiagram: null,
     onCancel: () => {
       cancelled += 1;
     },
@@ -111,15 +133,16 @@ test("handleKeyPress invokes cancel on Ctrl+Q", () => {
 
 test("handleKeyPress invokes save on Ctrl+S", () => {
   let saved = 0;
-  const { key, wasPrevented } = createMockKey("s", { ctrl: true });
+  const { event, wasPrevented } = createKeyEvent("s", { ctrl: true });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState() as never,
     cancelOnCtrlCEnabled: true,
     onSave: () => {
       saved += 1;
     },
+    onSaveDiagram: null,
     onCancel: null,
     requestRender: () => {},
     dismissStartupLogo: () => {},
@@ -133,10 +156,10 @@ test("handleKeyPress invokes save on Ctrl+S", () => {
 test("handleKeyPress switches tools with hotkeys outside text entry", () => {
   let mode: string | null = null;
   let renders = 0;
-  const { key, wasPrevented } = createMockKey("b", { raw: "b" });
+  const { event, wasPrevented } = createKeyEvent("b", { raw: "b" });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState({
       currentMode: "line",
       setMode: (next: string) => {
@@ -145,6 +168,7 @@ test("handleKeyPress switches tools with hotkeys outside text entry", () => {
     }) as never,
     cancelOnCtrlCEnabled: true,
     onSave: null,
+    onSaveDiagram: null,
     onCancel: null,
     requestRender: () => {
       renders += 1;
@@ -161,10 +185,10 @@ test("handleKeyPress switches tools with hotkeys outside text entry", () => {
 test("handleKeyPress does not switch tools while text entry is armed", () => {
   let mode: string | null = null;
   let inserted: string | null = null;
-  const { key } = createMockKey("b", { raw: "b" });
+  const { event } = createKeyEvent("b", { raw: "b" });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState({
       currentMode: "text",
       isTextEntryArmed: true,
@@ -177,6 +201,7 @@ test("handleKeyPress does not switch tools while text entry is armed", () => {
     }) as never,
     cancelOnCtrlCEnabled: true,
     onSave: null,
+    onSaveDiagram: null,
     onCancel: null,
     requestRender: () => {},
     dismissStartupLogo: () => {},
@@ -189,8 +214,8 @@ test("handleKeyPress does not switch tools while text entry is armed", () => {
 
 test("handleKeyPress cycles line styles with bracket keys", () => {
   const cycles: number[] = [];
-  const { key: leftKey } = createMockKey("[", { raw: "[" });
-  const { key: rightKey } = createMockKey("]", { raw: "]" });
+  const { event: leftKey } = createKeyEvent("[", { raw: "[" });
+  const { event: rightKey } = createKeyEvent("]", { raw: "]" });
   const state = createMockState({
     currentMode: "line",
     cycleLineStyle: (delta: number) => {
@@ -204,6 +229,7 @@ test("handleKeyPress cycles line styles with bracket keys", () => {
       state: state as never,
       cancelOnCtrlCEnabled: true,
       onSave: null,
+      onSaveDiagram: null,
       onCancel: null,
       requestRender: () => {},
       dismissStartupLogo: () => {},
@@ -216,6 +242,7 @@ test("handleKeyPress cycles line styles with bracket keys", () => {
       state: state as never,
       cancelOnCtrlCEnabled: true,
       onSave: null,
+      onSaveDiagram: null,
       onCancel: null,
       requestRender: () => {},
       dismissStartupLogo: () => {},
@@ -228,10 +255,10 @@ test("handleKeyPress cycles line styles with bracket keys", () => {
 test("handleKeyPress deletes selected objects outside text editing", () => {
   let deleted = 0;
   let renders = 0;
-  const { key, wasPrevented } = createMockKey("delete", { raw: "\u007f" });
+  const { event, wasPrevented } = createKeyEvent("delete", { raw: "\u007f" });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState({
       hasSelectedObject: true,
       deleteSelectedObject: () => {
@@ -240,6 +267,7 @@ test("handleKeyPress deletes selected objects outside text editing", () => {
     }) as never,
     cancelOnCtrlCEnabled: true,
     onSave: null,
+    onSaveDiagram: null,
     onCancel: null,
     requestRender: () => {
       renders += 1;
@@ -256,10 +284,10 @@ test("handleKeyPress deletes selected objects outside text editing", () => {
 test("handleKeyPress inserts printable text in text mode when entry is armed", () => {
   const inserted: string[] = [];
   let renders = 0;
-  const { key, wasPrevented } = createMockKey("a", { raw: "a" });
+  const { event, wasPrevented } = createKeyEvent("a", { raw: "a" });
 
   const handled = handleKeyPress({
-    key: key as never,
+    key: event as never,
     state: createMockState({
       currentMode: "text",
       isTextEntryArmed: true,
@@ -269,6 +297,7 @@ test("handleKeyPress inserts printable text in text mode when entry is armed", (
     }) as never,
     cancelOnCtrlCEnabled: true,
     onSave: null,
+    onSaveDiagram: null,
     onCancel: null,
     requestRender: () => {
       renders += 1;

@@ -24,7 +24,7 @@
       "dependencies": {
         "@opentui/core": "0.1.97",
         "@opentui/react": "0.1.97",
-        "@termdraw/opentui": "0.3.3",
+        "@termdraw/opentui": "0.3.4",
         "react": "^19.2.5",
       },
       "devDependencies": {
@@ -32,6 +32,7 @@
         "@types/react": "^19.2.14",
         "oxfmt": "^0.44.0",
         "oxlint": "^1.59.0",
+        "tuistory": "^0.3.0",
         "typescript": "^5.9.3",
       },
     },
@@ -60,7 +61,7 @@
       "dependencies": {
         "@opentui/core": "0.1.97",
         "@opentui/react": "0.1.97",
-        "@termdraw/opentui": "0.3.3",
+        "@termdraw/opentui": "0.3.4",
         "opentui-island": "^0.4.0",
         "react": "^19.2.0",
       },

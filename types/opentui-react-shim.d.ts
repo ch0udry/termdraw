@@ -15,6 +15,9 @@ declare function queueMicrotask(callback: () => void): void;
 declare const Bun: {
   argv: string[];
   write(destination: string, data: string): Promise<number>;
+  file(path: string): {
+    text(): Promise<string>;
+  };
 };
 
 declare module "bun:test" {
@@ -40,12 +43,21 @@ declare module "@opentui/react" {
 declare module "@opentui/react/test-utils" {
   import type * as React from "react";
 
+  interface MockKeyModifiers {
+    shift?: boolean;
+    ctrl?: boolean;
+    meta?: boolean;
+    super?: boolean;
+    hyper?: boolean;
+  }
+
   export interface OpenTUITestRenderResult {
     captureCharFrame(): string;
     renderOnce(): Promise<void>;
     mockInput: {
-      pressEnter(): void;
-      pressKey(key: string): void;
+      pressEnter(modifiers?: MockKeyModifiers): void;
+      pressKey(key: string, modifiers?: MockKeyModifiers): void;
+      pressKeys(keys: string[], delayMs?: number): Promise<void>;
     };
   }
 

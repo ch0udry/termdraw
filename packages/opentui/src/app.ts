@@ -13,18 +13,43 @@ import {
   type RenderContext,
   type RenderableOptions,
 } from "@opentui/core";
-import { DrawState, INK_COLORS, truncateToCells } from "./draw-state.js";
+import { DrawState, INK_COLORS, truncateToCells, type DrawDocument } from "./draw-state.js";
 import {
   getColorSwatches,
   getContextualStyleButtons,
+  getDiagramSavePromptLayout,
   getLayout,
   getToolButtons,
 } from "./app/layout.js";
-import { handleKeyPress, handleMouseEvent } from "./app/input.js";
-import { drawCanvas, drawChrome, drawTooSmallMessage, drawToolPalette } from "./app/render.js";
+import { handleDiagramSavePromptKey, handleKeyPress, handleMouseEvent } from "./app/input.js";
+import {
+  drawCanvas,
+  drawChrome,
+  drawDiagramSavePrompt,
+  drawTooSmallMessage,
+  drawToolPalette,
+} from "./app/render.js";
 import { renderStartupLogo } from "./app/startup-logo.js";
 import { COLORS, MIN_HEIGHT, MIN_WIDTH, getCanvasInsets } from "./app/theme.js";
-import type { AppLayout, ChromeMode } from "./app/types.js";
+import type {
+  AppLayout,
+  ChromeMode,
+  DiagramSavePromptKeyResult,
+  DiagramSaveState,
+} from "./app/types.js";
+
+function normalizeDiagramPath(path: string): string {
+  const trimmedPath = path.trim();
+  const lastSeparatorIndex = Math.max(trimmedPath.lastIndexOf("/"), trimmedPath.lastIndexOf("\\"));
+  const fileName = trimmedPath.slice(lastSeparatorIndex + 1);
+  const extensionIndex = fileName.lastIndexOf(".");
+
+  if (extensionIndex <= 0) {
+    return `${trimmedPath}.td.json`;
+  }
+
+  return trimmedPath;
+}
 
 /** Configures the shared termDRAW frame-buffer renderable. */
 export interface TermDrawRenderableOptions extends RenderableOptions<FrameBufferRenderable> {
@@ -32,7 +57,10 @@ export interface TermDrawRenderableOptions extends RenderableOptions<FrameBuffer
   height?: number | "auto" | `${number}%`;
   respectAlpha?: boolean;
   onSave?: (art: string) => void;
+  onSaveDiagram?: (document: DrawDocument, path: string) => void | Promise<void>;
   onCancel?: () => void;
+  initialDocument?: DrawDocument;
+  diagramPath?: string;
   autoFocus?: boolean;
   showStartupLogo?: boolean;
   cancelOnCtrlC?: boolean;
@@ -50,7 +78,16 @@ export class TermDrawRenderable extends FrameBufferRenderable {
   private readonly state: DrawState;
   private readonly chromeMode: ChromeMode;
   private onSaveCallback: ((art: string) => void) | null = null;
+  private onSaveDiagramCallback:
+    | ((document: DrawDocument, path: string) => void | Promise<void>)
+    | null = null;
   private onCancelCallback: (() => void) | null = null;
+  private pendingInitialDocument: DrawDocument | null = null;
+  private diagramPath: string | null = null;
+  private readonly diagramSaveState: DiagramSaveState = {
+    pending: false,
+    prompt: null,
+  };
   private autoFocusEnabled = false;
   private startupLogoEnabled = true;
   private startupLogoDismissed = false;
@@ -63,7 +100,10 @@ export class TermDrawRenderable extends FrameBufferRenderable {
       width,
       height,
       onSave,
+      onSaveDiagram,
       onCancel,
+      initialDocument,
+      diagramPath,
       autoFocus = false,
       showStartupLogo = true,
       cancelOnCtrlC = false,
@@ -85,7 +125,11 @@ export class TermDrawRenderable extends FrameBufferRenderable {
     this.state = new DrawState(this.width, this.height, getCanvasInsets(this.chromeMode));
     this.focusable = true;
     this.onSave = onSave;
+    this.onSaveDiagram = onSaveDiagram;
     this.onCancel = onCancel;
+    this.pendingInitialDocument = initialDocument ?? null;
+    this.diagramPath = diagramPath?.trim() ? diagramPath : null;
+    this.startupLogoDismissed = initialDocument !== undefined;
     this.showStartupLogo = showStartupLogo;
     this.autoFocus = autoFocus;
     this.cancelOnCtrlC = cancelOnCtrlC;
@@ -109,6 +153,13 @@ export class TermDrawRenderable extends FrameBufferRenderable {
   /** Sets the callback invoked when the user cancels out of the editor. */
   public set onCancel(handler: (() => void) | undefined) {
     this.onCancelCallback = handler ?? null;
+  }
+
+  /** Sets the callback invoked when the user saves the editable diagram document. */
+  public set onSaveDiagram(
+    handler: ((document: DrawDocument, path: string) => void | Promise<void>) | undefined,
+  ) {
+    this.onSaveDiagramCallback = handler ?? null;
   }
 
   /** Enables or disables automatic focus after construction. */
@@ -145,13 +196,21 @@ export class TermDrawRenderable extends FrameBufferRenderable {
 
   /** Exports the current drawing as plain text art. */
   public exportArt(): string {
+    this.loadPendingInitialDocumentIfNeeded();
     return this.state.exportArt();
+  }
+
+  /** Exports the current drawing as a versioned editable document. */
+  public exportDocument(): DrawDocument {
+    this.loadPendingInitialDocumentIfNeeded();
+    return this.state.exportDocument();
   }
 
   /** Resizes the retained canvas whenever the outer renderable changes size. */
   protected override onResize(width: number, height: number): void {
     super.onResize(width, height);
     this.syncCanvasLayout();
+    this.loadPendingInitialDocumentIfNeeded();
   }
 
   /** Dispatches mouse interaction to chrome hit targets or the draw-state pointer handler. */
@@ -175,6 +234,7 @@ export class TermDrawRenderable extends FrameBufferRenderable {
   /** Draws either the full app chrome or the editor-only surface into the frame buffer. */
   protected override renderSelf(buffer: OptimizedBuffer): void {
     const layout = this.syncCanvasLayout();
+    this.loadPendingInitialDocumentIfNeeded();
     this.frameBuffer.clear(COLORS.panel);
 
     if (this.chromeMode === "full") {
@@ -196,6 +256,7 @@ export class TermDrawRenderable extends FrameBufferRenderable {
         this.state,
         fullLayout,
         this.footerTextOverride,
+        this.onSaveDiagramCallback !== null,
       );
       drawToolPalette(
         this.frameBuffer,
@@ -216,16 +277,27 @@ export class TermDrawRenderable extends FrameBufferRenderable {
       this.startupLogoEnabled,
       this.startupLogoDismissed,
     );
+    drawDiagramSavePrompt(
+      this.frameBuffer,
+      getDiagramSavePromptLayout(this.width, this.height, this.getDiagramSavePrompt()),
+    );
     super.renderSelf(buffer);
   }
 
   /** Dispatches keyboard shortcuts, cursor movement, and text entry. */
   public override handleKeyPress(key: KeyEvent): boolean {
+    const diagramSavePromptResult = handleDiagramSavePromptKey(key, this.getDiagramSavePrompt());
+    if (diagramSavePromptResult.handled) {
+      this.applyDiagramSavePromptKeyResult(diagramSavePromptResult);
+      return true;
+    }
+
     return handleKeyPress({
       key,
       state: this.state,
       cancelOnCtrlCEnabled: this.cancelOnCtrlCEnabled,
       onSave: this.onSaveCallback ? () => this.onSaveCallback?.(this.state.exportArt()) : null,
+      onSaveDiagram: this.onSaveDiagramCallback ? () => this.beginDiagramSave() : null,
       onCancel: this.onCancelCallback,
       requestRender: () => this.requestRender(),
       dismissStartupLogo: () => this.dismissStartupLogo(),
@@ -237,6 +309,11 @@ export class TermDrawRenderable extends FrameBufferRenderable {
     if (!this.startupLogoEnabled || this.startupLogoDismissed) return;
     this.startupLogoDismissed = true;
     this.requestRender();
+  }
+
+  /** Returns the active save prompt state when the save dialog is visible. */
+  private getDiagramSavePrompt() {
+    return this.diagramSaveState.prompt;
   }
 
   /** Recomputes the canvas size and returns the full-chrome layout when applicable. */
@@ -253,6 +330,93 @@ export class TermDrawRenderable extends FrameBufferRenderable {
       getCanvasInsets(this.chromeMode),
     );
     return layout;
+  }
+
+  /** Applies any deferred initial document once the renderable has a usable canvas size. */
+  private loadPendingInitialDocumentIfNeeded(): void {
+    if (!this.pendingInitialDocument) return;
+
+    this.state.loadDocument(this.pendingInitialDocument);
+    this.pendingInitialDocument = null;
+  }
+
+  /** Starts a diagram save, prompting for a path when no diagram path is known yet. */
+  private beginDiagramSave(): void {
+    if (this.diagramSaveState.pending) return;
+
+    if (this.diagramPath) {
+      void this.saveDiagramToPath(this.diagramPath);
+      return;
+    }
+
+    this.diagramSaveState.prompt = {
+      value: "",
+      error: null,
+      pending: false,
+    };
+    this.state.setStatusMessage("Enter a path and press Enter to save the diagram.");
+    this.requestRender();
+  }
+
+  /** Applies the result of the extracted save-prompt key handler to the renderable state. */
+  private applyDiagramSavePromptKeyResult(result: DiagramSavePromptKeyResult): void {
+    if (!result.handled) return;
+
+    this.diagramSaveState.prompt = result.prompt;
+
+    if (result.statusMessage) {
+      this.state.setStatusMessage(result.statusMessage);
+    }
+
+    if (result.submitPath) {
+      void this.saveDiagramToPath(result.submitPath);
+      return;
+    }
+
+    this.requestRender();
+  }
+
+  /** Persists the editable document and updates the active diagram path on success. */
+  private async saveDiagramToPath(path: string): Promise<void> {
+    if (!this.onSaveDiagramCallback || this.diagramSaveState.pending) return;
+
+    const normalizedPath = normalizeDiagramPath(path);
+    this.diagramSaveState.pending = true;
+    if (this.diagramSaveState.prompt) {
+      this.diagramSaveState.prompt = {
+        ...this.diagramSaveState.prompt,
+        error: null,
+        pending: true,
+      };
+    }
+    this.state.setStatusMessage(`Saving diagram to ${normalizedPath}...`);
+    this.requestRender();
+
+    try {
+      await this.onSaveDiagramCallback(this.state.exportDocument(), normalizedPath);
+      this.diagramPath = normalizedPath;
+      this.diagramSaveState.prompt = null;
+      this.state.setStatusMessage(`Saved diagram to ${normalizedPath}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.diagramSaveState.prompt) {
+        this.diagramSaveState.prompt = {
+          ...this.diagramSaveState.prompt,
+          error: message,
+          pending: false,
+        };
+      }
+      this.state.setStatusMessage(`Failed to save diagram: ${message}`);
+    } finally {
+      this.diagramSaveState.pending = false;
+      if (this.diagramSaveState.prompt) {
+        this.diagramSaveState.prompt = {
+          ...this.diagramSaveState.prompt,
+          pending: false,
+        };
+      }
+      this.requestRender();
+    }
   }
 }
 
@@ -292,7 +456,7 @@ export function formatSavedOutput(art: string, fenced: boolean): string {
 /** Builds the CLI help text shown by the standalone termDRAW app. */
 export function buildHelpText(binaryName = "termdraw"): string {
   return truncateToCells(
-    `${binaryName} [--output file] [--fenced|--plain]\n\n` +
+    `${binaryName} [--load file.td.json|-] [--output file] [--fenced|--plain]\n\n` +
       `Controls:\n` +
       `  right palette   click Select / Box / Line / Brush / Text, box styles, and colors\n` +
       `  Ctrl+T / Tab    cycle select / box / line / brush / text\n` +
@@ -313,8 +477,11 @@ export function buildHelpText(binaryName = "termdraw"): string {
       `  mouse wheel     cycle box style in Box mode, line style in Line mode, or brush in Brush mode\n` +
       `  brush tool      choose from preset brush stencils in the palette\n` +
       `  Space           stamp a line point or current brush / insert space in Text mode\n` +
-      `  Enter / Ctrl+S  save\n\n` +
+      `  Enter / Ctrl+S  export art\n` +
+      `  Ctrl+D          save diagram (.td.json), prompting for a path when needed\n\n` +
       `Options:\n` +
+      `  --load <file>       open a native termDRAW document from a file\n` +
+      `  --load -            read a native termDRAW document from stdin\n` +
       `  -o, --output <file>  write the result to a file\n` +
       `  --fenced            output as a fenced markdown code block\n` +
       `  --plain             output plain text (default)\n` +
