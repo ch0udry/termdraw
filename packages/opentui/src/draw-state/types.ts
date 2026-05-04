@@ -5,7 +5,7 @@
  * types, and the small constant tables that the rest of the draw-state internals build on.
  */
 export const BRUSHES = ["#", "*", "+", "x", "o", ".", "•", "░", "▒", "▓"] as const;
-export const BOX_STYLES = ["auto", "light", "heavy", "double"] as const;
+export const BOX_STYLES = ["auto", "light", "heavy", "double", "dashed"] as const;
 export const LINE_STYLES = ["smooth", "light", "double"] as const;
 export const INK_COLORS = [
   "white",
@@ -36,7 +36,7 @@ export type CanvasInsets = {
   bottom: number;
 };
 export type Rect = { left: number; top: number; right: number; bottom: number };
-export type ConnectionStyle = "light" | "heavy" | "double";
+export type ConnectionStyle = "light" | "heavy" | "double" | "dashed";
 export type Direction = "n" | "e" | "s" | "w";
 export type DirectionCounts = { light: number; heavy: number; double: number };
 export type CellConnections = Record<Direction, DirectionCounts>;

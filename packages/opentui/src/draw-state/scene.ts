@@ -216,6 +216,15 @@ export function getBoxBorderGlyphs(style: ConnectionStyle) {
         bottomLeft: "╚",
         bottomRight: "╝",
       };
+    case "dashed":
+      return {
+        horizontal: "-",
+        vertical: "╎",
+        topLeft: "┌",
+        topRight: "┐",
+        bottomLeft: "└",
+        bottomRight: "┘",
+      };
     case "light":
       return {
         horizontal: "─",
