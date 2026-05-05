@@ -105,10 +105,10 @@ export function createColorGrid(width: number, height: number): ColorGrid {
 /** Creates an empty directional-connection record for a single cell. */
 function createCellConnections(): CellConnections {
   return {
-    n: { light: 0, heavy: 0, double: 0 },
-    e: { light: 0, heavy: 0, double: 0 },
-    s: { light: 0, heavy: 0, double: 0 },
-    w: { light: 0, heavy: 0, double: 0 },
+    n: { light: 0, heavy: 0, double: 0, dashed: 0 },
+    e: { light: 0, heavy: 0, double: 0, dashed: 0 },
+    s: { light: 0, heavy: 0, double: 0, dashed: 0 },
+    w: { light: 0, heavy: 0, double: 0, dashed: 0 },
   };
 }
 
@@ -215,6 +215,15 @@ export function getBoxBorderGlyphs(style: ConnectionStyle) {
         topRight: "╗",
         bottomLeft: "╚",
         bottomRight: "╝",
+      };
+    case "dashed":
+      return {
+        horizontal: "-",
+        vertical: "╎",
+        topLeft: "┌",
+        topRight: "┐",
+        bottomLeft: "└",
+        bottomRight: "┘",
       };
     case "light":
       return {

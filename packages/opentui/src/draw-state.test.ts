@@ -284,7 +284,7 @@ describe("DrawState", () => {
     expect(state.getCompositeCell(15, 10)).toBe("║");
   });
 
-  test("box styles can draw single and double borders", () => {
+  test("box styles can draw single, double, and dashed borders", () => {
     const state = new DrawState(30, 12);
     state.setMode("box");
     state.setBoxStyle("light");
@@ -302,10 +302,23 @@ describe("DrawState", () => {
     state.handlePointerEvent({ type: "drag", button: MouseButton.LEFT, ...doubleEnd });
     state.handlePointerEvent({ type: "up", button: MouseButton.LEFT, ...doubleEnd });
 
+    state.setBoxStyle("dashed");
+    const dashedStart = canvasPoint(state, 12, 0);
+    const dashedEnd = canvasPoint(state, 18, 4);
+    state.handlePointerEvent({ type: "down", button: MouseButton.LEFT, ...dashedStart });
+    state.handlePointerEvent({ type: "drag", button: MouseButton.LEFT, ...dashedEnd });
+    state.handlePointerEvent({ type: "up", button: MouseButton.LEFT, ...dashedEnd });
+
     expect(state.getCompositeCell(0, 0)).toBe("┌");
     expect(state.getCompositeCell(4, 2)).toBe("┘");
     expect(state.getCompositeCell(6, 0)).toBe("╔");
     expect(state.getCompositeCell(10, 2)).toBe("╝");
+    expect(state.getCompositeCell(12, 0)).toBe("┌");
+    expect(state.getCompositeCell(13, 0)).toBe("-");
+    expect(state.getCompositeCell(14, 0)).toBe("-");
+    expect(state.getCompositeCell(12, 1)).toBe("╎");
+    expect(state.getCompositeCell(12, 2)).toBe("╎");
+    expect(state.getCompositeCell(18, 4)).toBe("┘");
   });
 
   test("objects use the active color and selected objects can be recolored", () => {

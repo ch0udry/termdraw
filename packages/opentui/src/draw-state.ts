@@ -1693,6 +1693,23 @@ export class DrawState {
       switch (object.type) {
         case "box": {
           const style = this.resolveBoxConnectionStyle(object, object.style, object.id);
+          if (this.isDashedBoxStyle(style)) {
+            const { horizontal, vertical, topLeft, topRight, bottomLeft, bottomRight } =
+              getBoxBorderGlyphs(style);
+            this.paintRenderCell(object.left, object.top, topLeft, object.color);
+            this.paintRenderCell(object.right, object.top, topRight, object.color);
+            this.paintRenderCell(object.left, object.bottom, bottomLeft, object.color);
+            this.paintRenderCell(object.right, object.bottom, bottomRight, object.color);
+            for (let x = object.left + 1; x < object.right; x += 1) {
+              this.paintRenderCell(x, object.top, horizontal, object.color);
+              this.paintRenderCell(x, object.bottom, horizontal, object.color);
+            }
+            for (let y = object.top + 1; y < object.bottom; y += 1) {
+              this.paintRenderCell(object.left, y, vertical, object.color);
+              this.paintRenderCell(object.right, y, vertical, object.color);
+            }
+            break;
+          }
           applyBoxPerimeter(object, (x, y, direction) => {
             adjustConnection(
               this.renderConnections,
@@ -1870,6 +1887,11 @@ export class DrawState {
     }
 
     return style;
+  }
+
+  /** Returns whether a concrete box style should render as a manual dashed perimeter. */
+  private isDashedBoxStyle(style: ConnectionStyle): boolean {
+    return style === "dashed";
   }
 
   /** Alternates auto box weight based on nesting depth inside other boxes. */
@@ -2519,6 +2541,8 @@ export class DrawState {
         return "Heavy";
       case "double":
         return "Double";
+      case "dashed":
+        return "Dashed";
     }
   }
 

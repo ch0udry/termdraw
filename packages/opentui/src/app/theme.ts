@@ -66,6 +66,7 @@ export const BOX_STYLE_OPTIONS: { style: BoxStyle; sample: string; label: string
   { style: "light", sample: "┌─┐", label: "Single" },
   { style: "heavy", sample: "┏━┓", label: "Heavy" },
   { style: "double", sample: "╔═╗", label: "Double" },
+  { style: "dashed", sample: "┌-┐", label: "Dashed" },
 ];
 
 /** Available line-style rows for the palette. */
